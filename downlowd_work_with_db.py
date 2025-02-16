@@ -1,74 +1,94 @@
 import sqlite3
 import pandas as pd
-
-# Підключення до бази даних
-conn = sqlite3.connect('sales_data.db')
-
-# Завантаження даних у Pandas
-df = pd.read_sql_query('SELECT * FROM sales', conn)
-conn.close()
-
-print(df)
-
-#data_visualisation
-
 import matplotlib.pyplot as plt
-
-# Групуємо дані за продуктами
-grouped = df.groupby('product')['quantity'].sum()
-
-# Створюємо графік
-grouped.plot(kind='bar', color=['blue', 'green', 'orange'])
-plt.title('Продажі за продуктами')
-plt.xlabel('Продукт')
-plt.ylabel('Кількість проданих одиниць')
-plt.show()
-
-
-#Прогнозування продажів ШІ
-
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 import numpy as np
 
-# Додаємо новий стовпець "total" (загальний дохід)
-df['total'] = df['quantity'] * df['price']
 
-# Перетворюємо дату в числовий формат
-df['date'] = pd.to_datetime(df['date'])
-df['date_numeric'] = df['date'].map(pd.Timestamp.toordinal)
+def fetch_sales_data(db_path: str, query: str = 'SELECT * FROM sales') -> pd.DataFrame:
+    """
+    Connects to the database and loads data from the sales table.
+    """
+    with sqlite3.connect(db_path) as conn:
+        df = pd.read_sql_query(query, conn)
+    return df
 
-# Вибираємо ознаки і цільову змінну
-X = df[['date_numeric']]
-y = df['total']
 
-# Розділяємо дані на тренувальний і тестовий набори
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+def plot_sales_by_product(df: pd.DataFrame):
+    """
+    Creates a bar chart displaying the total quantity sold for each product.
+    """
+    # Group data by product and calculate the sum of quantities sold
+    grouped = df.groupby('product')['quantity'].sum()
+    # Generate a color palette based on the number of products
+    colors = plt.cm.viridis_r(np.linspace(0, 1, len(grouped)))
+    grouped.plot(kind='bar', color=colors)
+    plt.title('Sales by Product')
+    plt.xlabel('Product')
+    plt.ylabel('Quantity Sold')
+    plt.tight_layout()
+    plt.show()
 
-# Створюємо модель і тренуємо її
-model = LinearRegression()
-model.fit(X_train, y_train)
 
-# Прогнозуємо на тестових даних
-y_pred = model.predict(X_test)
+def predict_future_sales(df: pd.DataFrame, future_start: str = '2024-01-08', periods: int = 10):
+    """
+    Forecasts future sales using linear regression.
+    """
+    # Create a new column for total revenue
+    df['total'] = df['quantity'] * df['price']
 
-# Оцінюємо модель
-print("Коефіцієнт детермінації (R^2):", model.score(X_test, y_test))
+    # Convert the date column to datetime format and then to a numeric format
+    df['date'] = pd.to_datetime(df['date'])
+    df['date_numeric'] = df['date'].map(pd.Timestamp.toordinal)
 
-# Прогнозуємо на майбутнє
-future_dates = pd.date_range(start='2024-01-08', periods=10)
-future_dates_numeric = future_dates.map(pd.Timestamp.toordinal).to_numpy().reshape(-1, 1)
-future_sales = model.predict(future_dates_numeric)
+    # Define the feature and target variables
+    X = df[['date_numeric']]
+    y = df['total']
 
-# Виводимо прогноз
-for date, sales in zip(future_dates, future_sales):
-    print(f"Дата: {date.date()}, Прогнозований дохід: {sales:.2f}")
+    # Split the data into training and testing sets
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Експортуємо результати у файл Excel
-output_df = pd.DataFrame({
-    'Date': future_dates,
-    'Predicted Revenue': future_sales
-})
+    # Create and train the linear regression model
+    model = LinearRegression()
+    model.fit(X_train, y_train)
 
-output_df.to_excel('predicted_sales.xlsx', index=False, engine='openpyxl')
-print("Прогнози збережено у файл predicted_sales.xlsx")
+    # Evaluate the model using the coefficient of determination (R^2)
+    score = model.score(X_test, y_test)
+    print(f"Coefficient of Determination (R^2): {score:.2f}")
+
+    # Generate future dates for forecasting
+    future_dates = pd.date_range(start=future_start, periods=periods)
+    future_dates_numeric = future_dates.map(pd.Timestamp.toordinal).to_numpy().reshape(-1, 1)
+    future_sales = model.predict(future_dates_numeric)
+
+    # Print the forecasted revenue for each future date
+    for date, sales in zip(future_dates, future_sales):
+        print(f"Date: {date.date()}, Predicted Revenue: {sales:.2f}")
+
+    # Export the forecast results to an Excel file
+    output_df = pd.DataFrame({
+        'Date': future_dates,
+        'Predicted Revenue': future_sales
+    })
+    output_df.to_excel('predicted_sales.xlsx', index=False, engine='openpyxl')
+    print("Forecast saved to predicted_sales.xlsx")
+
+
+def main():
+    db_path = 'sales_data.db'
+
+    # Fetch sales data from the database
+    df = fetch_sales_data(db_path)
+    print("Fetched data:")
+    print(df)
+
+    # Visualize sales by product
+    plot_sales_by_product(df)
+
+    # Forecast future sales and export results
+    predict_future_sales(df)
+
+
+if __name__ == '__main__':
+    main()
